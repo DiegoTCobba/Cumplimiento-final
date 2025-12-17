@@ -82,6 +82,7 @@ def enviar_rechazo_api(buffer_excel):
 def generar_formato_due_diligence(df):
     """
     Llena la plantilla EXACTAMENTE en la tabla azul
+    Corrige el tipo de identificación (RUC)
     """
     wb = load_workbook("plantillas/Formato_Due_Diligence_Template.xlsx")
     ws = wb.active
@@ -90,13 +91,13 @@ def generar_formato_due_diligence(df):
     ws["C9"] = "Operaciones"
     ws["C11"] = datetime.now().strftime("%d/%m/%Y")
 
-    # La tabla empieza en la fila 13 (según plantilla)
+    # La tabla azul empieza en la fila 13
     fila = 13
 
     for _, row in df.iterrows():
-        ws[f"B{fila}"] = row["DOCUMENTO"]          # Tipo (RUC/DNI)
-        ws[f"C{fila}"] = row["NUMERO_DOCUMENTO"]   # Número
-        ws[f"D{fila}"] = row["NOMBRE"]              # Razón Social
+        ws[f"B{fila}"] = "RUC"                          # ✅ FORZADO
+        ws[f"C{fila}"] = str(row["NUMERO_DOCUMENTO"])   # Número
+        ws[f"D{fila}"] = row["NOMBRE"]                  # Razón Social
         fila += 1
 
     buffer = BytesIO()
@@ -227,3 +228,4 @@ if uploaded_files:
                     st.error("❌ Error en rechazo vía API.")
                     st.write("Status:", response.status_code)
                     st.text(response.text)
+
