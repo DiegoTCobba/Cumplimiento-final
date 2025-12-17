@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import requests
 from io import BytesIO
+from datetime import datetime
+from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
-from datetime import datetime
 
 # ===============================
 # CONFIGURACIÓN GENERAL
@@ -22,6 +23,12 @@ HEADERS = {
 
 CODIGO_RECHAZO = "R016"
 DESCRIPCION_RECHAZO = "CUENTA INVÁLIDA"
+
+# ===============================
+# RUTA SEGURA DE PLANTILLA
+# ===============================
+BASE_DIR = Path(__file__).resolve().parent
+PLANTILLA_DD_PATH = BASE_DIR / "plantillas" / "Formato_Due_Diligence_Template.xlsx"
 
 # ===============================
 # FUNCIONES
@@ -45,6 +52,14 @@ def generar_excel_rechazo(referencias):
         for cell in col:
             cell.number_format = "@"
 
+    for column_cells in ws.columns:
+        max_length = 0
+        col_letter = get_column_letter(column_cells[0].column)
+        for cell in column_cells:
+            if cell.value:
+                max_length = max(max_length, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = max_length + 3
+
     buffer_final = BytesIO()
     wb.save(buffer_final)
     buffer_final.seek(0)
@@ -52,82 +67,48 @@ def generar_excel_rechazo(referencias):
     return buffer_final
 
 
-def enviar_rechazo_api(buffer_excel):
-    files = {
-        "edt": (
-            "RechazoBCP.xlsx",
-            buffer_excel,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    }
-
-    response = requests.post(
-        API_URL,
-        headers=HEADERS,
-        files=files,
-        timeout=60
-    )
-
-    return response
-
-
-def generar_excel_respaldo(df):
-    fecha = datetime.now().strftime("%d.%m.%y")
-    buffer = BytesIO()
-
-    df_export = df.drop(columns=["Seleccionar"], errors="ignore")
-
-    df_export.to_excel(
-        buffer,
-        index=False,
-        engine="openpyxl",
-        sheet_name="Registros Observados"
-    )
-
-    buffer.seek(0)
-    return buffer, f"Registros_Observados_{fecha}.xlsx"
-
-
 def generar_formato_due_diligence(df):
-    """
-    Genera el Formato Due Diligence usando la PLANTILLA OFICIAL
-    """
+    if not PLANTILLA_DD_PATH.exists():
+        st.error("❌ No se encontró la plantilla Due Diligence en el proyecto.")
+        st.stop()
+
     fecha_excel = datetime.now().strftime("%d/%m/%Y")
     fecha_archivo = datetime.now().strftime("%d.%m.%y")
 
-    # Cargar plantilla EXACTA
-    wb = load_workbook("plantillas/Formato_Due_Diligence_Template.xlsx")
+    wb = load_workbook(PLANTILLA_DD_PATH)
     ws = wb.active  # o wb["Due Diligence"]
 
-    # Escribir fecha (celda según tu plantilla)
+    # Ajusta esta celda si en tu plantilla es otra
     ws["D10"] = fecha_excel
 
-    # Fila donde empiezan los registros (según tu imagen)
     fila_inicio = 13
 
-    # Limpiar registros anteriores
+    # Limpiar registros previos
     for row in ws.iter_rows(min_row=fila_inicio, max_col=5):
         for cell in row:
             cell.value = None
 
-    # Insertar clientes observados (>30K)
+    # Insertar datos observados
     for i, row in enumerate(df.itertuples(), start=0):
         ws[f"C{fila_inicio + i}"] = row.DOCUMENTO
         ws[f"D{fila_inicio + i}"] = str(row.NUMERO_DOCUMENTO)
         ws[f"E{fila_inicio + i}"] = row.NOMBRE
 
-    # Guardar en memoria
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
 
     return buffer, f"Formato Due Dilligence {fecha_archivo}.xlsx"
 
+
 # ===============================
-# INTERFAZ STREAMLIT
+# INTERFAZ
 # ===============================
 st.title("🚨 Cumplimiento – Rechazo de Clientes (>30K)")
-st.write("Carga archivos Excel, revisa clientes observados y genera evidencias oficiales.")
+st.write("Carga archivos Excel, identifica clientes observados y genera reportes oficiales.")
+
+# Verificación plantilla
+st.info(f"📄 Plantilla Due Diligence encontrada: {PLANTILLA_DD_PATH.exists()}")
 
 uploaded_files = st.file_uploader(
     "📂 Cargar uno o más archivos Excel",
@@ -142,8 +123,8 @@ if uploaded_files:
         try:
             df = pd.read_excel(file)
 
-            columnas = df.iloc[:, [1, 2, 3, 8, 12]].copy()
-            columnas.columns = [
+            columnas_interes = df.iloc[:, [1, 2, 3, 8, 12]].copy()
+            columnas_interes.columns = [
                 "DOCUMENTO",
                 "NUMERO_DOCUMENTO",
                 "NOMBRE",
@@ -151,12 +132,14 @@ if uploaded_files:
                 "MONTO"
             ]
 
-            columnas["MONTO"] = pd.to_numeric(columnas["MONTO"], errors="coerce")
-            columnas["REFERENCIA"] = columnas["REFERENCIA"].astype(str)
+            columnas_interes["MONTO"] = pd.to_numeric(
+                columnas_interes["MONTO"], errors="coerce"
+            )
 
-            filtrado = columnas[columnas["MONTO"] > 30000].copy()
+            columnas_interes["REFERENCIA"] = columnas_interes["REFERENCIA"].astype(str)
+
+            filtrado = columnas_interes[columnas_interes["MONTO"] > 30000]
             filtrado["Archivo_Origen"] = file.name
-            filtrado["Seleccionar"] = True
 
             dataframes.append(filtrado)
 
@@ -166,52 +149,25 @@ if uploaded_files:
     if dataframes:
         resultado_final = pd.concat(dataframes, ignore_index=True)
 
-        st.subheader("📋 Registros detectados (>30K)")
-        editable_df = st.data_editor(
-            resultado_final,
-            hide_index=True,
-            use_container_width=True
+        st.subheader("📋 Clientes Observados (>30K)")
+        st.dataframe(resultado_final, use_container_width=True)
+
+        # Descargar Excel de evidencias
+        buffer_rechazo = generar_excel_rechazo(resultado_final["REFERENCIA"].tolist())
+
+        st.download_button(
+            "⬇️ Descargar Excel de Evidencias",
+            data=buffer_rechazo,
+            file_name="Clientes_Observados.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        seleccionados = editable_df[editable_df["Seleccionar"]]
-        st.info(f"Seleccionados: {len(seleccionados)}")
-
-        col1, col2, col3 = st.columns(3)
-
-        # 📊 Excel respaldo
-        excel_respaldo, nombre_respaldo = generar_excel_respaldo(resultado_final)
-        with col1:
-            st.download_button(
-                "📊 Registros Observados",
-                data=excel_respaldo,
-                file_name=nombre_respaldo,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-        # 📄 Formato Due Diligence (plantilla real)
+        # Descargar Due Diligence oficial
         excel_dd, nombre_dd = generar_formato_due_diligence(resultado_final)
-        with col2:
-            st.download_button(
-                "📄 Formato Due Diligence (Oficial)",
-                data=excel_dd,
-                file_name=nombre_dd,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
 
-        # 🚀 Envío API
-        with col3:
-            if len(seleccionados) > 0:
-                referencias = seleccionados["REFERENCIA"].tolist()
-                excel_rechazo = generar_excel_rechazo(referencias)
-
-                if st.button("🚀 Enviar Rechazo a la API"):
-                    with st.spinner("Enviando a la API..."):
-                        response = enviar_rechazo_api(excel_rechazo)
-
-                    if response.status_code == 200:
-                        st.success("✅ Rechazo enviado correctamente")
-                    else:
-                        st.error(f"❌ Error API {response.status_code}\n{response.text}")
-
-    else:
-        st.warning("No se encontraron registros mayores a 30K.")
+        st.download_button(
+            "📄 Descargar Formato Due Diligence (Oficial)",
+            data=excel_dd,
+            file_name=nombre_dd,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
