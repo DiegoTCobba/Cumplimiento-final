@@ -118,15 +118,16 @@ def generar_due_diligence(df):
     wb = load_workbook("plantillas/Formato_Due_Diligence_Template.xlsx")
     ws = wb.active
 
-    ws["C9"] = "Operaciones"
-    ws["C11"] = datetime.now().strftime("%d/%m/%Y")
+    # Encabezados fijos
+    ws["D9"] = "Operaciones"
+    ws["D11"] = datetime.now().strftime("%d/%m/%Y")
 
-    fila = 13  # inicio de la tabla en la plantilla
+    fila = 13  # primera fila de datos (según tu plantilla)
 
     for _, row in df.iterrows():
-        ws[f"A{fila}"] = row["DOCUMENTO"]           # DNI / RUC
-        ws[f"B{fila}"] = row["NUMERO_DOCUMENTO"]
-        ws[f"C{fila}"] = row["NOMBRE"]
+        ws[f"C{fila}"] = row["DOCUMENTO"]          # Tipo (RUC / DNI)
+        ws[f"D{fila}"] = row["NUMERO_DOCUMENTO"]   # Número
+        ws[f"E{fila}"] = row["NOMBRE"]              # Razón social
         fila += 1
 
     buffer = BytesIO()
