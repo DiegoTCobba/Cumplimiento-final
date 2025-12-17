@@ -7,21 +7,22 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
 # ===============================
-# CONFIGURACIÓN
+# CONFIGURACIÓN GENERAL
 # ===============================
 st.set_page_config(
     page_title="Cumplimiento – Rechazos BCP",
     layout="wide"
 )
 
-API_URL = "https://TU_API_AQUI"
+API_URL = "https://q6capnpv09.execute-api.us-east-1.amazonaws.com/OPS/kpayout/v1/payout_process/reject_invoices_batch"
 
 HEADERS = {
-    # "Authorization": "Bearer TU_TOKEN"
+    # "Authorization": "Bearer TU_TOKEN_REAL"
 }
 
-CODIGO_RECHAZO = "R016"
-DESCRIPCION_RECHAZO = "CUENTA INVÁLIDA"
+# 🔴 EXACTO A POSTMAN
+CODIGO_RECHAZO = "001"
+DESCRIPCION_RECHAZO = "CUENTA INVALIDA"
 
 # ===============================
 # CARGA DE EXCELS
@@ -118,10 +119,10 @@ def generar_due_diligence(df):
     wb = load_workbook("plantillas/Formato_Due_Diligence_Template.xlsx")
     ws = wb.active
 
-    fila = 13  # primera fila de datos (según tu plantilla)
+    fila = 13  # inicio real de tabla en la plantilla
 
     for _, row in df.iterrows():
-        ws[f"C{fila}"] = row["DOCUMENTO"]          # Tipo (RUC / DNI)
+        ws[f"C{fila}"] = row["DOCUMENTO"]          # Tipo identificación
         ws[f"D{fila}"] = row["NUMERO_DOCUMENTO"]   # Número
         ws[f"E{fila}"] = row["NOMBRE"]              # Razón social
         fila += 1
@@ -147,13 +148,20 @@ st.download_button(
 # ===============================
 def generar_excel_rechazo(df):
     buffer = BytesIO()
+
     df_rechazo = pd.DataFrame({
-        "Referencia": df["REFERENCIA"],
-        "Estado": "Rechazada",
-        "Codigo de Rechazo": CODIGO_RECHAZO,
-        "Descripcion de Rechazo": DESCRIPCION_RECHAZO
+        "Referencia": df["REFERENCIA"].astype(str),
+        "Estado": ["Rechazada"] * len(df),
+        "Codigo de Rechazo": [CODIGO_RECHAZO] * len(df),
+        "Descripcion de Rechazo": [DESCRIPCION_RECHAZO] * len(df)
     })
-    df_rechazo.to_excel(buffer, index=False)
+
+    df_rechazo.to_excel(
+        buffer,
+        index=False,
+        engine="openpyxl"
+    )
+
     buffer.seek(0)
     return buffer
 
@@ -165,22 +173,26 @@ def enviar_rechazo_api(buffer_excel):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     }
+
     response = requests.post(
         API_URL,
         headers=HEADERS,
         files=files,
         timeout=60
     )
+
     return response
 
 seleccionados = edited_df[edited_df["Seleccionar"]]
 
 if st.button("🚀 Enviar Rechazo a la API"):
-    if len(seleccionados) > 0:
+    if len(seleccionados) == 0:
+        st.warning("Selecciona al menos un cliente.")
+    else:
         excel_api = generar_excel_rechazo(seleccionados)
         response = enviar_rechazo_api(excel_api)
 
         if response.status_code == 200:
-            st.success("✅ Rechazo enviado correctamente.")
+            st.success("✅ Rechazo enviado correctamente a la API.")
         else:
             st.error(f"❌ Error API: {response.status_code}")
