@@ -16,8 +16,6 @@ st.set_page_config(
 API_URL = "https://q6capnpv09.execute-api.us-east-1.amazonaws.com/OPS/kpayout/v1/payout_process/reject_invoices_batch"
 
 HEADERS = {
-    # 🔐 COPIA AQUÍ LOS HEADERS DE POSTMAN (Authorization, etc.)
-    # Ejemplo:
     # "Authorization": "Bearer TU_TOKEN"
 }
 
@@ -39,16 +37,13 @@ def generar_excel_rechazo(referencias):
     df.to_excel(buffer, index=False, engine="openpyxl")
     buffer.seek(0)
 
-    # Ajustar formato Excel
     wb = load_workbook(buffer)
     ws = wb.active
 
-    # Forzar Referencia como texto
     for col in ws.iter_cols(min_col=1, max_col=1, min_row=2):
         for cell in col:
             cell.number_format = "@"
 
-    # Ajustar ancho de columnas
     for column_cells in ws.columns:
         max_length = 0
         col_letter = get_column_letter(column_cells[0].column)
@@ -87,7 +82,7 @@ def enviar_rechazo_api(buffer_excel):
 # INTERFAZ
 # ===============================
 st.title("🚨 Cumplimiento – Rechazo de Clientes (>30K)")
-st.write("Carga archivos Excel, selecciona clientes y ejecuta rechazo individual o masivo.")
+st.write("Carga archivos Excel, selecciona clientes y ejecuta rechazo masivo.")
 
 uploaded_files = st.file_uploader(
     "📂 Cargar uno o más archivos Excel",
@@ -102,8 +97,8 @@ if uploaded_files:
         try:
             df = pd.read_excel(file)
 
-            columnas_interes = df.iloc[:, [1, 2, 3, 8, 12]].copy()
-            columnas_interes.columns = [
+            columnas = df.iloc[:, [1, 2, 3, 8, 12]].copy()
+            columnas.columns = [
                 "DOCUMENTO",
                 "NUMERO_DOCUMENTO",
                 "NOMBRE",
@@ -111,14 +106,12 @@ if uploaded_files:
                 "MONTO"
             ]
 
-            columnas_interes["MONTO"] = pd.to_numeric(
-                columnas_interes["MONTO"], errors="coerce"
-            )
+            columnas["MONTO"] = pd.to_numeric(columnas["MONTO"], errors="coerce")
+            columnas["REFERENCIA"] = columnas["REFERENCIA"].astype(str)
 
-            columnas_interes["REFERENCIA"] = columnas_interes["REFERENCIA"].astype(str)
-
-            filtrado = columnas_interes[columnas_interes["MONTO"] > 30000]
+            filtrado = columnas[columnas["MONTO"] > 30000].copy()
             filtrado["Archivo_Origen"] = file.name
+            filtrado["Seleccionar"] = True
 
             dataframes.append(filtrado)
 
@@ -126,4 +119,44 @@ if uploaded_files:
             st.error(f"Error procesando {file.name}: {e}")
 
     if dataframes:
-        resultado_final = pd.concat(dataframe_
+        resultado_final = pd.concat(dataframes, ignore_index=True)
+
+        st.subheader("📋 Registros detectados (>30K)")
+        editable_df = st.data_editor(
+            resultado_final,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        seleccionados = editable_df[editable_df["Seleccionar"]]
+
+        st.info(f"Seleccionados: {len(seleccionados)}")
+
+        if len(seleccionados) > 0:
+            referencias = seleccionados["REFERENCIA"].tolist()
+            excel_rechazo = generar_excel_rechazo(referencias)
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.download_button(
+                    "📥 Descargar Excel de Rechazo",
+                    data=excel_rechazo,
+                    file_name="RechazoBCP.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+            with col2:
+                if st.button("🚀 Enviar Rechazo a la API"):
+                    with st.spinner("Enviando a la API..."):
+                        response = enviar_rechazo_api(excel_rechazo)
+
+                    if response.status_code == 200:
+                        st.success("✅ Rechazo enviado correctamente")
+                    else:
+                        st.error(
+                            f"❌ Error API ({response.status_code})\n{response.text}"
+                        )
+
+    else:
+        st.warning("No se encontraron registros mayores a 30K.")
