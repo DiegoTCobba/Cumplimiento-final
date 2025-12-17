@@ -27,10 +27,10 @@ DESCRIPCION_RECHAZO = "CUENTA INVALIDA"
 # ===============================
 # CARGA DE EXCELS
 # ===============================
-st.title("🚨 Cumplimiento – Clientes Observados (>30K)")
+st.title(" Cumplimiento – Clientes Observados (>30K)")
 
 uploaded_files = st.file_uploader(
-    "📂 Cargar uno o más archivos Excel",
+    " Cargar uno o más archivos Excel",
     type=["xlsx", "xls"],
     accept_multiple_files=True
 )
