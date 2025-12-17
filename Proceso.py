@@ -19,7 +19,7 @@ HEADERS = {
     # "Authorization": "Bearer TU_TOKEN"
 }
 
-CODIGO_RECHAZO = "R016"
+CODIGO_RECHAZO = "R001"
 DESCRIPCION_RECHAZO = "CUENTA INVÁLIDA"
 
 # ===============================
