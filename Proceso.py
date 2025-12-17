@@ -89,49 +89,45 @@ def generar_excel_respaldo(df):
 
 
 def generar_formato_due_diligence(df):
+    """
+    Genera el Formato Due Diligence usando la PLANTILLA OFICIAL
+    """
     fecha_excel = datetime.now().strftime("%d/%m/%Y")
     fecha_archivo = datetime.now().strftime("%d.%m.%y")
 
-    df_dd = pd.DataFrame({
-        "Tipo de identificación (DNI-RUC)": df["DOCUMENTO"],
-        "Número de identificación": df["NUMERO_DOCUMENTO"].astype(str),
-        "Nombre completo / Razón Social": df["NOMBRE"]
-    })
+    # Cargar plantilla EXACTA
+    wb = load_workbook("plantillas/Formato_Due_Diligence_Template.xlsx")
+    ws = wb.active  # o wb["Due Diligence"]
 
+    # Escribir fecha (celda según tu plantilla)
+    ws["D10"] = fecha_excel
+
+    # Fila donde empiezan los registros (según tu imagen)
+    fila_inicio = 13
+
+    # Limpiar registros anteriores
+    for row in ws.iter_rows(min_row=fila_inicio, max_col=5):
+        for cell in row:
+            cell.value = None
+
+    # Insertar clientes observados (>30K)
+    for i, row in enumerate(df.itertuples(), start=0):
+        ws[f"C{fila_inicio + i}"] = row.DOCUMENTO
+        ws[f"D{fila_inicio + i}"] = str(row.NUMERO_DOCUMENTO)
+        ws[f"E{fila_inicio + i}"] = row.NOMBRE
+
+    # Guardar en memoria
     buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df_dd.to_excel(
-            writer,
-            index=False,
-            startrow=11,
-            sheet_name="Due Diligence"
-        )
-
-        wb = writer.book
-        ws = writer.sheets["Due Diligence"]
-
-        ws["C3"] = "kashio"
-        ws["C4"] = "Unidad de Cumplimiento"
-        ws["C8"] = "Nombre:"
-        ws["E8"] = "Operaciones"
-        ws["C10"] = "Fecha:"
-        ws["E10"] = fecha_excel
-
-        for col in range(1, 4):
-            ws.cell(row=12, column=col).font = ws.cell(row=12, column=col).font.copy(bold=True)
-
-        ws.column_dimensions["A"].width = 35
-        ws.column_dimensions["B"].width = 30
-        ws.column_dimensions["C"].width = 50
-
+    wb.save(buffer)
     buffer.seek(0)
+
     return buffer, f"Formato Due Dilligence {fecha_archivo}.xlsx"
 
 # ===============================
-# INTERFAZ
+# INTERFAZ STREAMLIT
 # ===============================
 st.title("🚨 Cumplimiento – Rechazo de Clientes (>30K)")
-st.write("Carga archivos Excel, selecciona clientes y genera evidencias y rechazos.")
+st.write("Carga archivos Excel, revisa clientes observados y genera evidencias oficiales.")
 
 uploaded_files = st.file_uploader(
     "📂 Cargar uno o más archivos Excel",
@@ -180,12 +176,10 @@ if uploaded_files:
         seleccionados = editable_df[editable_df["Seleccionar"]]
         st.info(f"Seleccionados: {len(seleccionados)}")
 
-        # ===== DESCARGAS =====
-        excel_respaldo, nombre_respaldo = generar_excel_respaldo(resultado_final)
-        excel_dd, nombre_dd = generar_formato_due_diligence(resultado_final)
-
         col1, col2, col3 = st.columns(3)
 
+        # 📊 Excel respaldo
+        excel_respaldo, nombre_respaldo = generar_excel_respaldo(resultado_final)
         with col1:
             st.download_button(
                 "📊 Registros Observados",
@@ -194,14 +188,17 @@ if uploaded_files:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
+        # 📄 Formato Due Diligence (plantilla real)
+        excel_dd, nombre_dd = generar_formato_due_diligence(resultado_final)
         with col2:
             st.download_button(
-                "📄 Formato Due Dilligence",
+                "📄 Formato Due Diligence (Oficial)",
                 data=excel_dd,
                 file_name=nombre_dd,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
+        # 🚀 Envío API
         with col3:
             if len(seleccionados) > 0:
                 referencias = seleccionados["REFERENCIA"].tolist()
@@ -218,4 +215,3 @@ if uploaded_files:
 
     else:
         st.warning("No se encontraron registros mayores a 30K.")
-
