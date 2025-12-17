@@ -142,7 +142,7 @@ if uploaded_files:
                 st.download_button(
                     "📥 Descargar Excel de Rechazo",
                     data=excel_rechazo,
-                    file_name="RechazoBCP.xlsx",
+                    file_name="Rechazo.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
