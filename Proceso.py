@@ -202,7 +202,7 @@ if len(seleccionados) > 0:
 else:
     st.info("Selecciona clientes para generar el Excel de rechazo.")
 
--------------------
+#-------------------
 if st.button("🚀 Enviar Rechazo a la API"):
     if len(seleccionados) == 0:
         st.warning("Selecciona al menos un cliente.")
