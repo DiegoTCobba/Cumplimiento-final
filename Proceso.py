@@ -3,7 +3,6 @@ import pandas as pd
 import requests
 from io import BytesIO
 from datetime import datetime
-from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
@@ -23,12 +22,6 @@ HEADERS = {
 
 CODIGO_RECHAZO = "R016"
 DESCRIPCION_RECHAZO = "CUENTA INVÁLIDA"
-
-# ===============================
-# RUTA SEGURA PLANTILLA
-# ===============================
-BASE_DIR = Path(__file__).resolve().parent
-PLANTILLA_DD_PATH = BASE_DIR / "plantillas" / "Formato_Due_Diligence_Template.xlsx"
 
 # ===============================
 # FUNCIONES
@@ -58,7 +51,7 @@ def generar_excel_rechazo(referencias):
         for cell in column_cells:
             if cell.value:
                 max_length = max(max_length, len(str(cell.value)))
-        ws.column_dimensions[col_letter].width = max_length + 3
+        ws.column_dimensions[col_letter].width = max_length + 4
 
     buffer_final = BytesIO()
     wb.save(buffer_final)
@@ -87,41 +80,34 @@ def enviar_rechazo_api(buffer_excel):
 
 
 def generar_formato_due_diligence(df):
-    if not PLANTILLA_DD_PATH.exists():
-        st.error("❌ No se encontró la plantilla Due Diligence.")
-        st.stop()
-
-    fecha_excel = datetime.now().strftime("%d/%m/%Y")
-    fecha_archivo = datetime.now().strftime("%d.%m.%y")
-
-    wb = load_workbook(PLANTILLA_DD_PATH)
+    wb = load_workbook("plantillas/Formato_Due_Diligence_Template.xlsx")
     ws = wb.active
 
-    ws["D10"] = fecha_excel  # Ajusta si tu plantilla usa otra celda
+    fila_inicio = 6
 
-    fila_inicio = 13
-
-    for row in ws.iter_rows(min_row=fila_inicio, max_col=5):
-        for cell in row:
-            cell.value = None
-
-    for i, row in enumerate(df.itertuples(), start=0):
-        ws[f"C{fila_inicio + i}"] = row.DOCUMENTO
-        ws[f"D{fila_inicio + i}"] = str(row.NUMERO_DOCUMENTO)
-        ws[f"E{fila_inicio + i}"] = row.NOMBRE
+    for i, row in df.iterrows():
+        ws[f"B{fila_inicio}"] = row["DOCUMENTO"]
+        ws[f"C{fila_inicio}"] = row["NUMERO_DOCUMENTO"]
+        ws[f"D{fila_inicio}"] = row["NOMBRE"]
+        ws[f"E{fila_inicio}"] = row["REFERENCIA"]
+        ws[f"F{fila_inicio}"] = row["MONTO"]
+        fila_inicio += 1
 
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
 
-    return buffer, f"Formato Due Dilligence {fecha_archivo}.xlsx"
+    fecha = datetime.now().strftime("%d.%m.%y")
+    nombre = f"Formato_Due_Diligence_{fecha}.xlsx"
+
+    return buffer, nombre
 
 
 # ===============================
 # INTERFAZ
 # ===============================
 st.title("🚨 Cumplimiento – Rechazo de Clientes (>30K)")
-st.write("Carga archivos Excel, analiza clientes y ejecuta rechazos vía Postman.")
+st.write("Carga archivos Excel, selecciona clientes y genera evidencias, due diligence y rechazo vía Postman.")
 
 uploaded_files = st.file_uploader(
     "📂 Cargar uno o más archivos Excel",
@@ -162,23 +148,16 @@ if uploaded_files:
     if dataframes:
         resultado_final = pd.concat(dataframes, ignore_index=True)
 
+        resultado_final.insert(0, "Seleccionar", False)
+
         st.subheader("📋 Clientes Observados (>30K)")
-
-        resultado_final["Seleccionar"] = False
-
-        editable_df = st.data_editor(
+        edited_df = st.data_editor(
             resultado_final,
             use_container_width=True,
-            num_rows="fixed",
-            column_config={
-                "Seleccionar": st.column_config.CheckboxColumn(
-                    "Rechazar",
-                    help="Selecciona clientes a rechazar"
-                )
-            }
+            num_rows="dynamic"
         )
 
-        seleccionados = editable_df[editable_df["Seleccionar"]]
+        seleccionados = edited_df[edited_df["Seleccionar"]]
 
         # ===============================
         # EXCEL DE EVIDENCIAS (TODOS >30K)
@@ -191,9 +170,24 @@ if uploaded_files:
         )
         buffer_evidencias.seek(0)
 
+        wb = load_workbook(buffer_evidencias)
+        ws = wb.active
+
+        for column_cells in ws.columns:
+            max_length = 0
+            col_letter = get_column_letter(column_cells[0].column)
+            for cell in column_cells:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = max_length + 5
+
+        buffer_evidencias_final = BytesIO()
+        wb.save(buffer_evidencias_final)
+        buffer_evidencias_final.seek(0)
+
         st.download_button(
             "⬇️ Descargar Excel de Evidencias (Todos >30K)",
-            data=buffer_evidencias,
+            data=buffer_evidencias_final,
             file_name="Evidencias_Clientes_Observados_30K.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
@@ -211,19 +205,18 @@ if uploaded_files:
         )
 
         # ===============================
-        # RECHAZO VIA POSTMAN / API
+        # RECHAZO VIA POSTMAN (SELECCIONADOS)
         # ===============================
         if not seleccionados.empty:
             st.subheader("🚫 Rechazo vía Postman / API")
 
             if st.button("Ejecutar Rechazo de Clientes Seleccionados"):
                 referencias = seleccionados["REFERENCIA"].tolist()
-
                 excel_api = generar_excel_rechazo(referencias)
                 response = enviar_rechazo_api(excel_api)
 
                 if response.status_code in (200, 201):
-                    st.success("✅ Rechazo ejecutado correctamente vía Postman.")
+                    st.success("✅ Rechazo ejecutado correctamente.")
                 else:
                     st.error("❌ Error en rechazo vía API.")
                     st.write("Status:", response.status_code)
