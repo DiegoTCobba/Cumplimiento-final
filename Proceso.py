@@ -48,12 +48,10 @@ def generar_excel_rechazo(referencias):
     wb = load_workbook(buffer)
     ws = wb.active
 
-    # Forzar referencia como texto
     for col in ws.iter_cols(min_col=1, max_col=1, min_row=2):
         for cell in col:
             cell.number_format = "@"
 
-    # Ajustar ancho columnas
     for column_cells in ws.columns:
         max_length = 0
         col_letter = get_column_letter(column_cells[0].column)
@@ -97,19 +95,16 @@ def generar_formato_due_diligence(df):
     fecha_archivo = datetime.now().strftime("%d.%m.%y")
 
     wb = load_workbook(PLANTILLA_DD_PATH)
-    ws = wb.active  # o wb["Due Diligence"]
+    ws = wb.active
 
-    # Ajusta si tu plantilla usa otra celda
-    ws["D10"] = fecha_excel
+    ws["D10"] = fecha_excel  # Ajusta si tu plantilla usa otra celda
 
     fila_inicio = 13
 
-    # Limpiar datos previos
     for row in ws.iter_rows(min_row=fila_inicio, max_col=5):
         for cell in row:
             cell.value = None
 
-    # Insertar clientes seleccionados
     for i, row in enumerate(df.itertuples(), start=0):
         ws[f"C{fila_inicio + i}"] = row.DOCUMENTO
         ws[f"D{fila_inicio + i}"] = str(row.NUMERO_DOCUMENTO)
@@ -126,9 +121,7 @@ def generar_formato_due_diligence(df):
 # INTERFAZ
 # ===============================
 st.title("🚨 Cumplimiento – Rechazo de Clientes (>30K)")
-st.write("Carga archivos Excel, selecciona clientes y ejecuta rechazo vía Postman.")
-
-st.info(f"📄 Plantilla Due Diligence encontrada: {PLANTILLA_DD_PATH.exists()}")
+st.write("Carga archivos Excel, analiza clientes y ejecuta rechazos vía Postman.")
 
 uploaded_files = st.file_uploader(
     "📂 Cargar uno o más archivos Excel",
@@ -188,36 +181,34 @@ if uploaded_files:
         seleccionados = editable_df[editable_df["Seleccionar"]]
 
         # ===============================
-        # EXCEL DE EVIDENCIAS (TABLA STREAMLIT)
+        # EXCEL DE EVIDENCIAS (TODOS >30K)
         # ===============================
-        if not seleccionados.empty:
-            buffer_evidencias = BytesIO()
-            seleccionados.drop(columns=["Seleccionar"]).to_excel(
-                buffer_evidencias,
-                index=False,
-                engine="openpyxl"
-            )
-            buffer_evidencias.seek(0)
+        buffer_evidencias = BytesIO()
+        resultado_final.drop(columns=["Seleccionar"]).to_excel(
+            buffer_evidencias,
+            index=False,
+            engine="openpyxl"
+        )
+        buffer_evidencias.seek(0)
 
-            st.download_button(
-                "⬇️ Descargar Excel de Evidencias (Seleccionados)",
-                data=buffer_evidencias,
-                file_name="Evidencias_Clientes_Rechazados.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        st.download_button(
+            "⬇️ Descargar Excel de Evidencias (Todos >30K)",
+            data=buffer_evidencias,
+            file_name="Evidencias_Clientes_Observados_30K.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
         # ===============================
-        # DUE DILIGENCE
+        # DUE DILIGENCE (TODOS >30K)
         # ===============================
-        if not seleccionados.empty:
-            excel_dd, nombre_dd = generar_formato_due_diligence(seleccionados)
+        excel_dd, nombre_dd = generar_formato_due_diligence(resultado_final)
 
-            st.download_button(
-                "📄 Descargar Formato Due Diligence (Seleccionados)",
-                data=excel_dd,
-                file_name=nombre_dd,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        st.download_button(
+            "📄 Descargar Formato Due Diligence (Todos >30K)",
+            data=excel_dd,
+            file_name=nombre_dd,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
         # ===============================
         # RECHAZO VIA POSTMAN / API
@@ -237,5 +228,3 @@ if uploaded_files:
                     st.error("❌ Error en rechazo vía API.")
                     st.write("Status:", response.status_code)
                     st.text(response.text)
-        else:
-            st.info("ℹ️ Selecciona al menos un cliente para continuar.")
