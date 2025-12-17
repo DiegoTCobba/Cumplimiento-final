@@ -1,231 +1,151 @@
 import streamlit as st
 import pandas as pd
 import requests
-from io import BytesIO
 from datetime import datetime
+from io import BytesIO
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-# ===============================
-# CONFIGURACIÓN GENERAL
-# ===============================
-st.set_page_config(
-    page_title="Cumplimiento – Rechazos BCP",
-    layout="wide"
+# =========================
+# CONFIG
+# =========================
+API_URL = "http://TU_API_RECHAZO_URL"
+
+st.set_page_config(page_title="Unidad de Cumplimiento", layout="wide")
+
+# =========================
+# DATA DE EJEMPLO (REEMPLAZA POR TU PIPELINE REAL)
+# =========================
+data = [
+    {
+        "DOCUMENTO": "RUC",
+        "NUMERO_DOCUMENTO": "20612550264",
+        "NOMBRE": "Corporacion ALV EIRL NULL",
+        "REFERENCIA": "253506686395",
+        "MONTO": 39500.90,
+        "Archivo_Origen": "VARIOS PAYOUT IBK"
+    },
+    {
+        "DOCUMENTO": "RUC",
+        "NUMERO_DOCUMENTO": "20602935559",
+        "NOMBRE": "Motoservice SAC NULL",
+        "REFERENCIA": "253506686409",
+        "MONTO": 37931.06,
+        "Archivo_Origen": "VARIOS PAYOUT BBVA"
+    }
+]
+
+df = pd.DataFrame(data)
+
+# =========================
+# FILTRO > 30K
+# =========================
+resultado_final = df[df["MONTO"] > 30000].copy()
+resultado_final["Seleccionar"] = False
+
+# =========================
+# STREAMLIT TABLE
+# =========================
+st.title("📋 Registros detectados (>30K)")
+
+edited_df = st.data_editor(
+    resultado_final,
+    use_container_width=True,
+    hide_index=True
 )
 
-API_URL = "https://q6capnpv09.execute-api.us-east-1.amazonaws.com/OPS/kpayout/v1/payout_process/reject_invoices_batch"
-
-HEADERS = {
-    # "Authorization": "Bearer TU_TOKEN"
-}
-
-CODIGO_RECHAZO = "R016"
-DESCRIPCION_RECHAZO = "CUENTA INVÁLIDA"
-
-# ===============================
-# FUNCIONES
-# ===============================
-def generar_excel_rechazo(referencias):
-    df = pd.DataFrame({
-        "Referencia": referencias,
-        "Estado": ["Rechazada"] * len(referencias),
-        "Codigo de Rechazo": [CODIGO_RECHAZO] * len(referencias),
-        "Descripcion de Rechazo": [DESCRIPCION_RECHAZO] * len(referencias)
-    })
-
+# =========================
+# EXCEL DE EVIDENCIAS (TODOS >30K)
+# =========================
+def generar_excel_evidencias(df):
     buffer = BytesIO()
-    df.to_excel(buffer, index=False, engine="openpyxl")
+    df.drop(columns=["Seleccionar"]).to_excel(buffer, index=False)
     buffer.seek(0)
 
     wb = load_workbook(buffer)
     ws = wb.active
 
-    for col in ws.iter_cols(min_col=1, max_col=1, min_row=2):
-        for cell in col:
-            cell.number_format = "@"
+    for col in ws.columns:
+        max_len = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+        ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + 5
 
-    for column_cells in ws.columns:
-        max_length = 0
-        col_letter = get_column_letter(column_cells[0].column)
-        for cell in column_cells:
-            if cell.value:
-                max_length = max(max_length, len(str(cell.value)))
-        ws.column_dimensions[col_letter].width = max_length + 4
+    final_buffer = BytesIO()
+    wb.save(final_buffer)
+    final_buffer.seek(0)
+    return final_buffer
 
-    buffer_final = BytesIO()
-    wb.save(buffer_final)
-    buffer_final.seek(0)
+st.download_button(
+    "⬇️ Descargar Excel de Evidencias",
+    generar_excel_evidencias(resultado_final),
+    file_name="Evidencias_Clientes_Observados_30K.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
-    return buffer_final
-
-
-def enviar_rechazo_api(buffer_excel):
-    files = {
-        "edt": (
-            "RechazoBCP.xlsx",
-            buffer_excel,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    }
-
-    response = requests.post(
-        API_URL,
-        headers=HEADERS,
-        files=files,
-        timeout=60
-    )
-
-    return response
-
-
-def generar_formato_due_diligence(df):
-    """
-    Llena la plantilla EXACTAMENTE en la tabla azul
-    Corrige el tipo de identificación (RUC)
-    """
+# =========================
+# DUE DILIGENCE (PLANTILLA)
+# =========================
+def generar_due_diligence(df):
     wb = load_workbook("plantillas/Formato_Due_Diligence_Template.xlsx")
     ws = wb.active
 
-    # Encabezado fijo
     ws["C9"] = "Operaciones"
     ws["C11"] = datetime.now().strftime("%d/%m/%Y")
 
-    # La tabla azul empieza en la fila 13
-    fila = 13
+    fila = 13  # inicio real de tabla azul
 
     for _, row in df.iterrows():
-        ws[f"B{fila}"] = "RUC"                          # ✅ FORZADO
-        ws[f"C{fila}"] = str(row["NUMERO_DOCUMENTO"])   # Número
-        ws[f"D{fila}"] = row["NOMBRE"]                  # Razón Social
+        ws[f"A{fila}"] = row["DOCUMENTO"]          # RUC / DNI
+        ws[f"B{fila}"] = row["NUMERO_DOCUMENTO"]
+        ws[f"C{fila}"] = row["NOMBRE"]
         fila += 1
 
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
 
-    fecha_archivo = datetime.now().strftime("%d.%m.%y")
-    nombre_archivo = f"Formato_Due_Diligence_{fecha_archivo}.xlsx"
+    nombre = f"Formato_Due_Diligence_{datetime.now().strftime('%d.%m.%y')}.xlsx"
+    return buffer, nombre
 
-    return buffer, nombre_archivo
+buffer_dd, nombre_dd = generar_due_diligence(resultado_final)
 
-
-# ===============================
-# INTERFAZ
-# ===============================
-st.title("🚨 Cumplimiento – Rechazo de Clientes (>30K)")
-st.write("Carga archivos Excel, revisa clientes observados, genera evidencias, Due Diligence y rechazo.")
-
-uploaded_files = st.file_uploader(
-    "📂 Cargar uno o más archivos Excel",
-    type=["xlsx", "xls"],
-    accept_multiple_files=True
+st.download_button(
+    "⬇️ Descargar Formato Due Diligence",
+    buffer_dd,
+    file_name=nombre_dd,
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-if uploaded_files:
-    dataframes = []
+# =========================
+# RECHAZO API (SOLO SELECCIONADOS)
+# =========================
+def generar_excel_api(df):
+    columnas_api = ["DOCUMENTO", "NUMERO_DOCUMENTO", "NOMBRE", "REFERENCIA", "MONTO"]
+    buffer = BytesIO()
+    df[columnas_api].to_excel(buffer, index=False)
+    buffer.seek(0)
+    return buffer
 
-    for file in uploaded_files:
-        try:
-            df = pd.read_excel(file)
-
-            columnas_interes = df.iloc[:, [1, 2, 3, 8, 12]].copy()
-            columnas_interes.columns = [
-                "DOCUMENTO",
-                "NUMERO_DOCUMENTO",
-                "NOMBRE",
-                "REFERENCIA",
-                "MONTO"
-            ]
-
-            columnas_interes["MONTO"] = pd.to_numeric(
-                columnas_interes["MONTO"], errors="coerce"
-            )
-
-            columnas_interes["REFERENCIA"] = columnas_interes["REFERENCIA"].astype(str)
-
-            filtrado = columnas_interes[columnas_interes["MONTO"] > 30000]
-            filtrado["Archivo_Origen"] = file.name
-
-            dataframes.append(filtrado)
-
-        except Exception as e:
-            st.error(f"Error procesando {file.name}: {e}")
-
-    if dataframes:
-        resultado_final = pd.concat(dataframes, ignore_index=True)
-
-        resultado_final.insert(0, "Seleccionar", False)
-
-        st.subheader("📋 Clientes Observados (>30K)")
-        edited_df = st.data_editor(
-            resultado_final,
-            use_container_width=True,
-            num_rows="dynamic"
+def enviar_rechazo_api(excel_buffer):
+    files = {
+        "file": (
+            "rechazo.xlsx",
+            excel_buffer,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+    }
+    response = requests.post(API_URL, files=files, timeout=60)
+    return response
 
-        seleccionados = edited_df[edited_df["Seleccionar"]]
+seleccionados = edited_df[edited_df["Seleccionar"]]
 
-        # ===============================
-        # EXCEL DE EVIDENCIAS (TODOS >30K)
-        # ===============================
-        buffer_evidencias = BytesIO()
-        resultado_final.drop(columns=["Seleccionar"]).to_excel(
-            buffer_evidencias,
-            index=False,
-            engine="openpyxl"
-        )
-        buffer_evidencias.seek(0)
+if st.button("🚀 Enviar Rechazo a la API"):
+    if len(seleccionados) == 0:
+        st.warning("Selecciona al menos un cliente.")
+    else:
+        excel_api = generar_excel_api(seleccionados)
+        response = enviar_rechazo_api(excel_api)
 
-        wb = load_workbook(buffer_evidencias)
-        ws = wb.active
-
-        for column_cells in ws.columns:
-            max_length = 0
-            col_letter = get_column_letter(column_cells[0].column)
-            for cell in column_cells:
-                if cell.value:
-                    max_length = max(max_length, len(str(cell.value)))
-            ws.column_dimensions[col_letter].width = max_length + 5
-
-        buffer_evidencias_final = BytesIO()
-        wb.save(buffer_evidencias_final)
-        buffer_evidencias_final.seek(0)
-
-        st.download_button(
-            "⬇️ Descargar Excel de Evidencias (Todos >30K)",
-            data=buffer_evidencias_final,
-            file_name="Evidencias_Clientes_Observados_30K.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        # ===============================
-        # DUE DILIGENCE (TODOS >30K)
-        # ===============================
-        excel_dd, nombre_dd = generar_formato_due_diligence(resultado_final)
-
-        st.download_button(
-            "📄 Descargar Formato Due Diligence (Todos >30K)",
-            data=excel_dd,
-            file_name=nombre_dd,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        # ===============================
-        # RECHAZO VIA POSTMAN (SELECCIONADOS)
-        # ===============================
-        if not seleccionados.empty:
-            st.subheader("🚫 Rechazo vía Postman / API")
-
-            if st.button("Ejecutar Rechazo de Clientes Seleccionados"):
-                referencias = seleccionados["REFERENCIA"].tolist()
-                excel_api = generar_excel_rechazo(referencias)
-                response = enviar_rechazo_api(excel_api)
-
-                if response.status_code in (200, 201):
-                    st.success("✅ Rechazo ejecutado correctamente.")
-                else:
-                    st.error("❌ Error en rechazo vía API.")
-                    st.write("Status:", response.status_code)
-                    st.text(response.text)
-
+        if response.status_code == 200:
+            st.success("✅ Rechazo enviado correctamente.")
+        else:
+            st.error(f"❌ Error API: {response.status_code}")
