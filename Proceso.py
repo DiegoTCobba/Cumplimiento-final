@@ -118,10 +118,6 @@ def generar_due_diligence(df):
     wb = load_workbook("plantillas/Formato_Due_Diligence_Template.xlsx")
     ws = wb.active
 
-    # Encabezados fijos
-    ws["D9"] = "Operaciones"
-    ws["D11"] = datetime.now().strftime("%d/%m/%Y")
-
     fila = 13  # primera fila de datos (según tu plantilla)
 
     for _, row in df.iterrows():
