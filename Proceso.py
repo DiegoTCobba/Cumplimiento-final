@@ -185,6 +185,24 @@ def enviar_rechazo_api(buffer_excel):
 
 seleccionados = edited_df[edited_df["Seleccionar"]]
 
+# ===============================
+# EXPORTAR EXCEL PARA POSTMAN
+# ===============================
+st.subheader("📄 Excel de Rechazo (Postman)")
+
+if len(seleccionados) > 0:
+    excel_rechazo = generar_excel_rechazo(seleccionados)
+
+    st.download_button(
+        label="⬇️ Descargar Excel de Rechazo (Postman)",
+        data=excel_rechazo,
+        file_name="RechazoBCP.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+else:
+    st.info("Selecciona clientes para generar el Excel de rechazo.")
+
+-------------------
 if st.button("🚀 Enviar Rechazo a la API"):
     if len(seleccionados) == 0:
         st.warning("Selecciona al menos un cliente.")
