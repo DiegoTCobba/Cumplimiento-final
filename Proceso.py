@@ -80,34 +80,40 @@ def enviar_rechazo_api(buffer_excel):
 
 
 def generar_formato_due_diligence(df):
+    """
+    Llena la plantilla EXACTAMENTE en la tabla azul
+    """
     wb = load_workbook("plantillas/Formato_Due_Diligence_Template.xlsx")
     ws = wb.active
 
-    fila_inicio = 6
+    # Encabezado fijo
+    ws["C9"] = "Operaciones"
+    ws["C11"] = datetime.now().strftime("%d/%m/%Y")
 
-    for i, row in df.iterrows():
-        ws[f"B{fila_inicio}"] = row["DOCUMENTO"]
-        ws[f"C{fila_inicio}"] = row["NUMERO_DOCUMENTO"]
-        ws[f"D{fila_inicio}"] = row["NOMBRE"]
-        ws[f"E{fila_inicio}"] = row["REFERENCIA"]
-        ws[f"F{fila_inicio}"] = row["MONTO"]
-        fila_inicio += 1
+    # La tabla empieza en la fila 13 (según plantilla)
+    fila = 13
+
+    for _, row in df.iterrows():
+        ws[f"B{fila}"] = row["DOCUMENTO"]          # Tipo (RUC/DNI)
+        ws[f"C{fila}"] = row["NUMERO_DOCUMENTO"]   # Número
+        ws[f"D{fila}"] = row["NOMBRE"]              # Razón Social
+        fila += 1
 
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
 
-    fecha = datetime.now().strftime("%d.%m.%y")
-    nombre = f"Formato_Due_Diligence_{fecha}.xlsx"
+    fecha_archivo = datetime.now().strftime("%d.%m.%y")
+    nombre_archivo = f"Formato_Due_Diligence_{fecha_archivo}.xlsx"
 
-    return buffer, nombre
+    return buffer, nombre_archivo
 
 
 # ===============================
 # INTERFAZ
 # ===============================
 st.title("🚨 Cumplimiento – Rechazo de Clientes (>30K)")
-st.write("Carga archivos Excel, selecciona clientes y genera evidencias, due diligence y rechazo vía Postman.")
+st.write("Carga archivos Excel, revisa clientes observados, genera evidencias, Due Diligence y rechazo.")
 
 uploaded_files = st.file_uploader(
     "📂 Cargar uno o más archivos Excel",
